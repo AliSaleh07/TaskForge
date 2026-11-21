@@ -2,7 +2,7 @@
 
 import pytest
 from starlette.testclient import TestClient
-from taskforge.auth import hash_password, verify_password
+from taskforge.auth import hash_password, verify_password, create_access_token
 
 
 def test_password_hashing():
@@ -32,14 +32,22 @@ def test_user_registration_and_login(client: TestClient):
     assert res_dup.status_code == 409
     assert "already taken" in res_dup.json()["detail"]
 
-    # 3. Weak password rejection
+    # 3. Duplicate email rejection with different username
+    res_dup_email = client.post(
+        "/api/v1/auth/register",
+        json={"username": "alice_alt", "email": "alice@example.com", "password": "ValidPassword123"},
+    )
+    assert res_dup_email.status_code == 409
+    assert "already registered" in res_dup_email.json()["detail"]
+
+    # 4. Weak password rejection
     res_weak = client.post(
         "/api/v1/auth/register",
         json={"username": "bob_weak", "email": "bob@example.com", "password": "weak"},
     )
     assert res_weak.status_code == 422
 
-    # 4. Login with correct credentials
+    # 5. Login with correct credentials
     login_res = client.post(
         "/api/v1/auth/login",
         json={"username_or_email": "alice_dev", "password": "ValidPassword123"},
@@ -51,19 +59,48 @@ def test_user_registration_and_login(client: TestClient):
 
     token = token_data["access_token"]
 
-    # 5. Access /me profile endpoint
+    # 6. Access /me profile endpoint
     headers = {"Authorization": f"Bearer {token}"}
     me_res = client.get("/api/v1/auth/me", headers=headers)
     assert me_res.status_code == 200
     assert me_res.json()["username"] == "alice_dev"
 
-    # 6. Unauthorized access without token
+    # 7. Unauthorized access without token
     unauth_res = client.get("/api/v1/auth/me")
     assert unauth_res.status_code == 401
 
-    # 7. Login with wrong password
+    # 8. Login with wrong password
     bad_login = client.post(
         "/api/v1/auth/login",
         json={"username_or_email": "alice_dev", "password": "WrongPassword999"},
     )
     assert bad_login.status_code == 401
+
+
+def test_token_expiration_and_tampering(client: TestClient):
+    # Expired Token (created with negative expiration delta)
+    expired_token = create_access_token(
+        data={"sub": "any-user-id", "username": "expired_user", "role": "user"},
+        expires_delta_seconds=-60,
+    )
+    res_exp = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {expired_token}"})
+    assert res_exp.status_code == 401
+    assert "expired" in res_exp.json()["detail"].lower()
+
+    # Valid Token
+    valid_token = create_access_token(
+        data={"sub": "any-user-id", "username": "valid_user", "role": "user"},
+        expires_delta_seconds=3600,
+    )
+    parts = valid_token.split(".")
+    # Tamper signature by altering the last character
+    tampered_sig = parts[2][:-1] + ("A" if parts[2][-1] != "A" else "B")
+    tampered_token = f"{parts[0]}.{parts[1]}.{tampered_sig}"
+
+    res_tampered = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {tampered_token}"})
+    assert res_tampered.status_code == 401
+    assert "signature" in res_tampered.json()["detail"].lower()
+
+    # Malformed token (missing segments)
+    res_malformed = client.get("/api/v1/auth/me", headers={"Authorization": "Bearer not-a-valid-jwt"})
+    assert res_malformed.status_code == 401

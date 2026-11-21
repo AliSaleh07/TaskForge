@@ -7,7 +7,6 @@ from starlette.testclient import TestClient
 @pytest.fixture
 def user_tokens(client: TestClient):
     """Create two separate users and return their JWT tokens."""
-    # User 1
     client.post(
         "/api/v1/auth/register",
         json={"username": "user_one", "email": "user1@example.com", "password": "Password123"},
@@ -18,7 +17,6 @@ def user_tokens(client: TestClient):
     )
     token1 = res1.json()["access_token"]
 
-    # User 2
     client.post(
         "/api/v1/auth/register",
         json={"username": "user_two", "email": "user2@example.com", "password": "Password123"},
@@ -71,7 +69,11 @@ def test_task_lifecycle_and_ownership(client: TestClient, user_tokens):
     )
     assert forbidden_update.status_code == 404
 
-    # 5. User 1 updates task
+    # 5. Security Isolation: User 2 must NOT be able to delete User 1's task
+    forbidden_delete = client.delete(f"/api/v1/tasks/{task_id}", headers=headers2)
+    assert forbidden_delete.status_code == 404
+
+    # 6. User 1 updates task
     update_res = client.put(
         f"/api/v1/tasks/{task_id}",
         headers=headers1,
@@ -81,14 +83,15 @@ def test_task_lifecycle_and_ownership(client: TestClient, user_tokens):
     assert update_res.json()["status"] == "in_progress"
     assert update_res.json()["priority"] == "high"
 
-    # 6. User 1 checks stats
+    # 7. User 1 checks stats
     stats_res = client.get("/api/v1/tasks/stats/summary", headers=headers1)
     assert stats_res.status_code == 200
     stats = stats_res.json()
     assert stats["total_tasks"] == 1
     assert stats["in_progress_count"] == 1
+    assert stats["high_count"] == 1
 
-    # 7. List and filter tasks
+    # 8. List and filter tasks by status & priority
     list_res = client.get("/api/v1/tasks?status=in_progress", headers=headers1)
     assert list_res.status_code == 200
     assert list_res.json()["total"] == 1
@@ -96,10 +99,34 @@ def test_task_lifecycle_and_ownership(client: TestClient, user_tokens):
     list_empty = client.get("/api/v1/tasks?status=completed", headers=headers1)
     assert list_empty.json()["total"] == 0
 
-    # 8. User 1 deletes task
+    # Search filter matching title
+    search_hit = client.get("/api/v1/tasks?search=JWT", headers=headers1)
+    assert search_hit.json()["total"] == 1
+
+    # Search filter with non-matching term
+    search_miss = client.get("/api/v1/tasks?search=NonExistentQuery", headers=headers1)
+    assert search_miss.json()["total"] == 0
+
+    # 9. User 1 deletes task
     del_res = client.delete(f"/api/v1/tasks/{task_id}", headers=headers1)
     assert del_res.status_code == 204
 
-    # 9. Verify task is gone
+    # 10. Verify task is gone
     gone_res = client.get(f"/api/v1/tasks/{task_id}", headers=headers1)
     assert gone_res.status_code == 404
+
+
+def test_task_validation_errors(client: TestClient, user_tokens):
+    headers = {"Authorization": f"Bearer {user_tokens['token1']}"}
+
+    # Empty title
+    res_empty_title = client.post("/api/v1/tasks", headers=headers, json={"title": ""})
+    assert res_empty_title.status_code == 422
+
+    # Invalid priority
+    res_bad_priority = client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"title": "Valid Title", "priority": "extreme"},
+    )
+    assert res_bad_priority.status_code == 422
