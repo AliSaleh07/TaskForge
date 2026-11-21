@@ -93,8 +93,8 @@ def test_token_expiration_and_tampering(client: TestClient):
         expires_delta_seconds=3600,
     )
     parts = valid_token.split(".")
-    # Tamper signature by altering the last character
-    tampered_sig = parts[2][:-1] + ("A" if parts[2][-1] != "A" else "B")
+    # Tamper signature by altering the first character to guarantee decoded HMAC mismatch
+    tampered_sig = ("B" if parts[2][0] == "A" else "A") + parts[2][1:]
     tampered_token = f"{parts[0]}.{parts[1]}.{tampered_sig}"
 
     res_tampered = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {tampered_token}"})

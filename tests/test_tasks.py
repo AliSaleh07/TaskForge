@@ -130,3 +130,26 @@ def test_task_validation_errors(client: TestClient, user_tokens):
         json={"title": "Valid Title", "priority": "extreme"},
     )
     assert res_bad_priority.status_code == 422
+
+
+def test_security_headers_and_csp(client: TestClient):
+    # API endpoints should have strict CSP
+    api_res = client.get("/healthz")
+    assert api_res.status_code == 200
+    assert api_res.headers["X-Content-Type-Options"] == "nosniff"
+    assert api_res.headers["X-Frame-Options"] == "DENY"
+    assert api_res.headers["Content-Security-Policy"] == "default-src 'self'; frame-ancestors 'none';"
+
+    # Swagger /docs should have scoped CSP allowing cdn.jsdelivr.net and inline bootstrap scripts
+    docs_res = client.get("/docs")
+    assert docs_res.status_code == 200
+    docs_csp = docs_res.headers["Content-Security-Policy"]
+    assert "https://cdn.jsdelivr.net" in docs_csp
+    assert "'unsafe-inline'" in docs_csp
+    assert "https://fastapi.tiangolo.com" in docs_csp
+
+    # OpenAPI JSON should also have scoped CSP
+    openapi_res = client.get("/openapi.json")
+    assert openapi_res.status_code == 200
+    assert "https://cdn.jsdelivr.net" in openapi_res.headers["Content-Security-Policy"]
+
