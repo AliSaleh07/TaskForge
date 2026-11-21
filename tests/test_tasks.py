@@ -153,3 +153,9 @@ def test_security_headers_and_csp(client: TestClient):
     assert openapi_res.status_code == 200
     assert "https://cdn.jsdelivr.net" in openapi_res.headers["Content-Security-Policy"]
 
+    # Self-hosted static Swagger assets should be accessible directly
+    js_res = client.get("/static/swagger-ui-bundle.js")
+    assert js_res.status_code == 200
+    css_res = client.get("/static/swagger-ui.css")
+    assert css_res.status_code == 200
+

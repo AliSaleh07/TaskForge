@@ -33,5 +33,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')" || exit 1
 
-# Launch uvicorn bound to 0.0.0.0:8000
-CMD ["uvicorn", "taskforge.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Launch uvicorn bound to 0.0.0.0:8000 with reverse proxy header support
+CMD ["uvicorn", "taskforge.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
