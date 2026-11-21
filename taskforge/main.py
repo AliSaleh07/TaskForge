@@ -52,12 +52,13 @@ async def custom_swagger_ui_html():
 
 @app.get("/redoc", include_in_schema=False)
 async def redoc_html():
-    """Self-hosted ReDoc documentation."""
+    """Self-hosted ReDoc documentation without external CDN or font dependencies."""
     return get_redoc_html(
         openapi_url=app.openapi_url,
         title=app.title + " - ReDoc",
         redoc_js_url="/static/redoc.standalone.js",
         redoc_favicon_url="/static/favicon.png",
+        with_google_fonts=False,
     )
 
 
